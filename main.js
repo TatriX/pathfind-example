@@ -1,6 +1,5 @@
 /*
  * TODO:
- * use graph nodes as closedset (use .visited flag)
  * use priority queue instead of stupid loop
  * make nodes subdivision when adding obstacles
  */
@@ -20,6 +19,7 @@ function Node(x, y, w, h) {
     this.neighbors = [];
 
     this.parent = null;
+    this.visited = false;
 
     this.g = 0;
     this.f = 0;
@@ -52,8 +52,11 @@ Node.prototype = {
         var dy = this.y - node.y;
         return Math.hypot(dx, dy);
     },
+    manhattenDistanceTo: function(node) {
+        return Math.abs(this.x - node.x) + Math.abs(this.y - node.y);
+    },
     costTo: function(node) {
-        return this.distanceTo(node);
+        return this.manhattenDistanceTo(node);
     },
     intersects: function(node) {
         return this.x < node.x+node.w && this.y < node.y+node.h &&
@@ -80,12 +83,9 @@ function astar(start, goal) {
     if (start.equals(goal))
         return [];
 
-    var closedset = {};
-
     var openset = {};
     openset[start.key] = start;
     var opensetLength = 1;
-    var opensetHead = start;
 
     start.f = start.g + start.costTo(goal);
 
@@ -102,17 +102,13 @@ function astar(start, goal) {
         delete openset[current.key];
         opensetLength--;
 
-        closedset[current.key] = current;
+        current.visited = true;
         current.neighbors.forEach(function(neighbor) {
             var g = current.g + current.distanceTo(neighbor);
-            var inClosed = !!closedset[neighbor.key];
-            if (inClosed && g >= neighbor.g)
-                return;
-
-            if (!inClosed || g < neighbor.g) {
+            if (!neighbor.visited || g < neighbor.g) {
                 neighbor.parent = current;
                 neighbor.g = g;
-                neighbor.f = neighbor.f + neighbor.costTo(goal);
+                neighbor.f = g + neighbor.costTo(goal);
                 if (!openset[neighbor.key]) {
                     openset[neighbor.key] = neighbor;
                     opensetLength++;
