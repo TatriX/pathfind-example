@@ -1,1 +1,1 @@
-Latice grid pathfinding example
+Lattice grid A* pathfinding example
