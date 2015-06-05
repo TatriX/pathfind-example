@@ -1,6 +1,8 @@
 /*
  * TODO:
  * use priority queue instead of stupid loop
+ * get rid of duplications on subdivision (make defalt node.color semi-transparent)
+ * optimize crazy loops inside loops inside loops
  */
 
 var tileW = 32;
@@ -40,7 +42,7 @@ Node.prototype = {
         return this.x + "," + this.y;
     },
     link: function(node) {
-        if (this.neighbors.indexOf(node) != -1)
+        if (this == node || this.neighbors.indexOf(node) != -1)
             return;
         this.neighbors.push(node);
         node.neighbors.push(this);
@@ -65,13 +67,34 @@ Node.prototype = {
     costTo: function(node) {
         return this.manhattenDistanceTo(node);
     },
+    containsPoint: function(x, y) {
+        return this.x < x && this.y < y &&
+	    this.x + this.w > x && this.y + this.h > y;
+    },
     intersects: function(node) {
         return this.x < node.x + node.w && this.y < node.y + node.h &&
 	    this.x + this.w > node.x && this.y + this.h > node.y;
     },
+    contains: function(node) {
+        return this.x <= node.x && this.y <= node.y &&
+	    this.x+this.w >= node.x+node.w && this.y+this.h >= node.y+node.h;
+    },
     touches: function(node) {
-        return this.x <= node.x + node.w && this.y <= node.y + node.h &&
-	    this.x + this.w >= node.x && this.y + this.h >= node.y;
+        if (this.x == node.x + node.w || this.x + this.w == node.x)
+            return this.y >= node.y && this.y + this.h <= node.y + node.h;
+        else if (this.y == node.y + node.h || this.y + this.h == node.y)
+            return this.x >= node.x && this.x + this.w <= node.x + node.w;
+        return false;
+    },
+    subdivide: function(x, y) {
+        // nw .. ne
+        // . x, y).
+        // sw .. se
+        var nw = new Node(this.x, this.y, x - this.x, y - this.y);
+        var ne = new Node(nw.x + nw.w, nw.y, this.w - nw.w, nw.h);
+        var sw = new Node(nw.x, nw.y + nw.h, nw.w, this.h - nw.h);
+        var se = new Node(ne.x, ne.y + ne.h, ne.w, sw.h);
+        return [nw, ne, sw, se];
     },
     path: function() {
         var path = [this];
@@ -87,6 +110,12 @@ Node.prototype = {
         ctx.fillRect(this.x, this.y, this.w, this.h);
         ctx.strokeStyle = "#333";
         ctx.strokeRect(this.x, this.y, this.w, this.h);
+
+        // node's center
+        // ctx.fillStyle = "#333";
+        // ctx.beginPath();
+        // ctx.arc(this.centerX, this.centerY, 2, 0, 2*Math.PI);
+        // ctx.fill();
 
         // print some stuff
         // ctx.fillStyle = "#000";
@@ -220,65 +249,68 @@ Graph.prototype = {
         this.path.draw();
     },
     subdivide: function(obstacle) {
-        var nodes = this.findNodes(obstacle);
-        // make 4 corners nodes
-        // [nw]***[ne]
-        //  *       *
-        // [sw]***[se]
-        var max = {x: -Infinity, y: -Infinity};
-        var min = {x: +Infinity, y: +Infinity};
-        nodes.forEach(function(node) {
-            if (node.x + node.w > max.x)
-                max.x = node.x + node.w;
-            if (node.y + node.h > max.y)
-                max.y = node.y + node.h;
+        var nodes = findNodes(this.nodes, obstacle);
+        var subnodes = [];
 
-            if (node.x < min.x)
-                min.x = node.x;
-            if (node.y < min.y)
-                min.y = node.y;
+        function subdivide(x, y, except) {
+            var node = findNode(nodes, x, y);
+            node && node.subdivide(x, y).forEach(function(node, i) {
+                if (i != except)
+                    subnodes.push(node);
+            });
+        }
+        subdivide(obstacle.x, obstacle.y, 3); //nw
+        subdivide(obstacle.x+obstacle.w, obstacle.y, 2); //ne
+        subdivide(obstacle.x, obstacle.y+obstacle.h, 1); //sw
+        subdivide(obstacle.x+obstacle.w, obstacle.y+obstacle.h, 0); //se
+
+        subnodes = subnodes.filter(function(subnode) {
+            return subnode.w > 0 && subnode.h > 0;
         });
 
-        var nw = new Node(min.x, min.y, obstacle.x - min.x, obstacle.y - min.y);
+        nodes.forEach(function(node) {
+            if (findNodes(subnodes, node).length > 0)
+                return;
+            if (obstacle.contains(node))
+                return;
+            if (obstacle.y > node.y) {
+                if (node.y + node.h > obstacle.y + obstacle.h) {
+                    subnodes.push(new Node(
+                        node.x,
+                        obstacle.y + obstacle.h,
+                        node.w,
+                        (node.y + node.h) - (obstacle.y + obstacle.h)
+                    ));
+                }
+                node.h = obstacle.y - node.y;
+            } else if (obstacle.x > node.x) {
+                if (node.x + node.w > obstacle.x + obstacle.w) {
+                    subnodes.push(new Node(
+                        obstacle.x + obstacle.w,
+                        node.y,
+                        (node.x + node.w) - (obstacle.x + obstacle.w),
+                        node.h
+                    ));
+                }
+                node.w = obstacle.x - node.x;
+            } else if (obstacle.y + obstacle.h < node.y + node.h) {
+                var y = obstacle.y + obstacle.h;
+                node.h = node.y + node.h - y;
+                node.y = y;
+            } else if (obstacle.x + obstacle.w < node.x + node.w) {
+                var x = obstacle.x + obstacle.w;
+                node.w = node.x + node.w - x;
+                node.x = x;
+            }
+            subnodes.push(new Node(node.x, node.y, node.w, node.h));
+        });
 
-        var width = max.x - (obstacle.x + obstacle.w);
-        var ne = new Node(max.x - width, min.y, width, nw.h);
-
-        var height = max.y - (obstacle.y + obstacle.h);
-        var sw = new Node(min.x, max.y - height, nw.w, height);
-
-        var se = new Node(ne.x, sw.y, ne.w, sw.h);
-
-        // next
-        //  ***[n]***
-        //  *       *
-        // [w]     [e]
-        //  *       *
-        //  ***[s]***
-
-        width = (max.x - min.x) - (nw.w + ne.w);
-        var n = new Node(nw.x + nw.w, nw.y, width, ne.h);
-
-        height = (max.y - min.y) - (nw.h + sw.h);
-        var w = new Node(nw.x, nw.y + nw.h, nw.w, height);
-
-        var s = new Node(sw.x + sw.w, sw.y, width, sw.h);
-
-        var e = new Node(se.x, w.y, ne.w, height);
-
-        var subnodes = [
-            nw, n, ne,
-            w, /**/, e,
-            sw, s, se,
-        ];
-        w.link(nw);
-        w.link(sw);
-        e.link(ne);
-        e.link(se);
-        n.link(nw);
-        n.link(ne);
-        s.link(sw);
-        s.link(se);
+        subnodes.forEach(function(subnode) {
+            subnodes.forEach(function(next) {
+                if (next.touches(subnode))
+                    subnode.link(next);
+            });
+        });
 
         nodes.forEach(function(node) {
             subnodes.forEach(function(subnode) {
@@ -295,12 +327,7 @@ Graph.prototype = {
             graph.remove(node);
         });
 
-        subnodes.forEach(function(subnode) {
-            if (subnode.w == 0 || subnode.h == 0)
-                subnode.detach();
-            else
-                this.add(subnode);
-        }.bind(this));
+        subnodes.forEach(this.add.bind(this));
     },
     add: function(node) {
         this.nodes.push(node);
@@ -314,12 +341,19 @@ Graph.prototype = {
         this.obstacles.push(obstacle);
         this.subdivide(obstacle);
     },
-    findNodes: function(obstacle) {
-        return this.nodes.filter(function(node) {
-            return node.intersects(obstacle);
-        });
-    },
 };
+
+function findNodes(nodes, node) {
+    return nodes.filter(function(n) {
+        return node.intersects(n);
+    });
+}
+
+function findNode(nodes, x, y) {
+    return nodes.find(function(node) {
+        return node.containsPoint(x, y);
+    });
+}
 
 function Obstacle(x, y, w, h) {
     var node = new Node(x, y, w, h);
@@ -351,19 +385,15 @@ function go() {
 }
 
 function generateObstacles() {
-    for (var i = 0; i < numObstacles; ) {
+    // graph.addObstacle(new Obstacle(150, 150, 100, 100));
+    // graph.addObstacle(new Obstacle(250, 250, 300, 300));
+    // return;
+    for (var i = 0; i < numObstacles; i++ ) {
         var w = rand(8, 3*tileW);
         var h = rand(8, 3*tileH);
         var x = rand(0, mapSide*tileW - w);
         var y = rand(0, mapSide*tileH - h);
-        var obstacle = new Obstacle(x, y, w, h);
-        if (graph.obstacles.some(function(ob) {
-            return obstacle.intersects(ob);
-        })) {
-            continue;
-        }
-        graph.addObstacle(obstacle);
-        i++;
+        graph.addObstacle(new Obstacle(x, y, w, h));
     }
 }
 
