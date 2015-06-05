@@ -10,7 +10,7 @@ var tileH = 32;
 var mapSide = 16;
 var mapW = mapSide * tileW;
 var mapH = mapSide * tileH;
-var numObstacles = 8;
+var numObstacles = mapSide;
 
 var controls = {
     showEdges: document.getElementById("show-edges"),
@@ -255,7 +255,7 @@ Graph.prototype = {
         function subdivide(x, y, except) {
             var node = findNode(nodes, x, y);
             node && node.subdivide(x, y).forEach(function(node, i) {
-                if (i != except)
+                if (i != except && node.w > 0 && node.h > 0)
                     subnodes.push(node);
             });
         }
@@ -263,10 +263,6 @@ Graph.prototype = {
         subdivide(obstacle.x+obstacle.w, obstacle.y, 2); //ne
         subdivide(obstacle.x, obstacle.y+obstacle.h, 1); //sw
         subdivide(obstacle.x+obstacle.w, obstacle.y+obstacle.h, 0); //se
-
-        subnodes = subnodes.filter(function(subnode) {
-            return subnode.w > 0 && subnode.h > 0;
-        });
 
         nodes.forEach(function(node) {
             if (findNodes(subnodes, node).length > 0)
@@ -316,6 +312,7 @@ Graph.prototype = {
             subnodes.forEach(function(subnode) {
                 if (node.intersects(subnode)) {
                     node.neighbors.forEach(function(neighbor) {
+                        // TODO: check if it's actuall required now
                         if (nodes.indexOf(neighbor) != -1)
                             return;
                         if (subnode.touches(neighbor)) {
