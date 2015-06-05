@@ -5,6 +5,23 @@
     html {
             background: #eec;
     }
+    #canvas {
+            float: left;
+            margin: 0 10px;
+    }
+    label {
+            display: block;
+    }
     </style>
+    <canvas id="canvas"></canvas>
+    <label>
+        <input type="checkbox" id="show-edges" data-redraw-only="true" >
+        Show edges
+    </label>
+    <label>
+        <input type="checkbox" id="random-start-goal">
+        Random start/goal
+    </label>
+    <button id="go">Go</button>
     <script src="main.js"></script>
 </body>
